@@ -16,7 +16,11 @@ if lms_schedule_file and satisfied_svasti_file:
         lms_schedule_df = pd.read_excel(lms_schedule_file)
         satisfied_svasti_df = pd.read_excel(satisfied_svasti_file)
 
-        # Ensure column names are consistent
+        # Display the column names for verification
+        st.write("Columns in LMS Schedule File:", lms_schedule_df.columns.tolist())
+        st.write("Columns in Satisfied Svasti File:", satisfied_svasti_df.columns.tolist())
+
+        # Ensure column names are consistent and strip any leading/trailing whitespaces
         lms_schedule_df.columns = lms_schedule_df.columns.str.strip()
         satisfied_svasti_df.columns = satisfied_svasti_df.columns.str.strip()
 
@@ -39,10 +43,10 @@ if lms_schedule_file and satisfied_svasti_file:
 
             # Check if the merge added the 'status' column from the satisfied_svasti_df
             if 'status' in merged_df.columns:
-                # Update the 'status' in the LMS schedule based on the matched data
-                merged_df['status'] = merged_df['status'].combine_first(lms_schedule_df['status'])
+                # Display the merged dataframe with the 'status' column filled
+                merged_df['status'] = merged_df['status'].combine_first(lms_schedule_df.get('status', ''))
             else:
-                st.error("The merge operation did not add the 'status' column. Please check the data in your files.")
+                st.error("The 'status' column could not be found in the merged data. Please verify your files.")
                 st.stop()
 
             # Display the merged dataframe
