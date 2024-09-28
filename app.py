@@ -41,6 +41,10 @@ if lms_schedule_file and satisfied_svasti_file:
                 st.error(f"Error converting InstalmentDate columns to datetime: {e}")
                 st.stop()
 
+            # Display first few rows for debugging
+            st.write("LMS Schedule Data Sample", lms_schedule_df.head())
+            st.write("Satisfied Svasti Data Sample", satisfied_svasti_df.head())
+
             # Check for any NaT (Not-a-Time) entries in 'InstalmentDate'
             if lms_schedule_df['InstalmentDate'].isna().any():
                 st.warning("There are invalid dates in the LMS Schedule 'InstalmentDate' column. Please review the file.")
@@ -49,8 +53,12 @@ if lms_schedule_file and satisfied_svasti_file:
 
             # Merge the dataframes based on 'LAN' and 'InstalmentDate'
             try:
-                merged_df = pd.merge(lms_schedule_df, satisfied_svasti_df[['LAN', 'InstalmentDate', 'status']], 
-                                     on=['LAN', 'InstalmentDate'], how='left')
+                merged_df = pd.merge(
+                    lms_schedule_df, 
+                    satisfied_svasti_df[['LAN', 'InstalmentDate', 'status']], 
+                    on=['LAN', 'InstalmentDate'], 
+                    how='left'
+                )
             except Exception as e:
                 st.error(f"Error during merging: {e}")
                 st.stop()
@@ -58,7 +66,9 @@ if lms_schedule_file and satisfied_svasti_file:
             # Check if the merge added the 'status' column from the satisfied_svasti_df
             if 'status' in merged_df.columns:
                 # Fill missing 'status' values from the original LMS data if available
-                merged_df['status'] = merged_df['status'].combine_first(lms_schedule_df.get('status', ''))
+                if 'status' in lms_schedule_df.columns:
+                    merged_df['status'] = merged_df['status'].combine_first(lms_schedule_df['status'])
+                merged_df['status'] = merged_df['status'].fillna('Not Available')
             else:
                 st.error("The 'status' column could not be found in the merged data. Please verify your files.")
                 st.stop()
