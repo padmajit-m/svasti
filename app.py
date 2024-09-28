@@ -1,102 +1,59 @@
-import streamlit as st
 import pandas as pd
-import io  # Import io for handling in-memory file operations
+import streamlit as st
 
-# Streamlit app title
-st.title("LMS Schedule Status Updater")
+# Title of the application
+st.title("Loan Repayment Schedule Adjuster")
 
-# File upload section
-st.header("Upload Files")
-lms_schedule_file = st.file_uploader("Upload LMS Schedule File", type=["xlsx"])
-satisfied_svasti_file = st.file_uploader("Upload Satisfied Svasti File", type=["xlsx"])
+# Upload LMS Schedule File
+lms_file = st.file_uploader("Upload LMS Schedule File", type=["xlsx"])
+# Upload Partner Schedule File
+partner_file = st.file_uploader("Upload Partner Schedule File", type=["xlsx"])
 
-# When both files are uploaded
-if lms_schedule_file and satisfied_svasti_file:
-    try:
-        # Load the Excel files
-        lms_schedule_df = pd.read_excel(lms_schedule_file)
-        satisfied_svasti_df = pd.read_excel(satisfied_svasti_file)
+if lms_file and partner_file:
+    # Load the files into DataFrames
+    lms_schedule = pd.read_excel(lms_file)
+    partner_schedule = pd.read_excel(partner_file)
 
-        # Display the column names for verification
-        st.write("Columns in LMS Schedule File:", lms_schedule_df.columns.tolist())
-        st.write("Columns in Satisfied Svasti File:", satisfied_svasti_df.columns.tolist())
+    # Display the uploaded data for reference
+    st.write("LMS Schedule Data:")
+    st.dataframe(lms_schedule)
+    
+    st.write("Partner Schedule Data:")
+    st.dataframe(partner_schedule)
 
-        # Ensure column names are consistent and strip any leading/trailing whitespaces
-        lms_schedule_df.columns = lms_schedule_df.columns.str.strip()
-        satisfied_svasti_df.columns = satisfied_svasti_df.columns.str.strip()
+    # Filter out satisfied cases
+    satisfied_cases = lms_schedule[lms_schedule['status'] == 'Satisfied']
 
-        # Check if the key columns exist
-        required_columns_lms = ['LAN', 'InstalmentDate']
-        required_columns_svasti = ['LAN', 'InstalmentDate', 'status']
+    # Initialize a new DataFrame for the updated LMS schedule
+    updated_schedule = lms_schedule.copy()
 
-        if not all(col in lms_schedule_df.columns for col in required_columns_lms):
-            st.error(f"LMS schedule file must contain columns: {required_columns_lms}")
-        elif not all(col in satisfied_svasti_df.columns for col in required_columns_svasti):
-            st.error(f"Satisfied Svasti file must contain columns: {required_columns_svasti}")
-        else:
-            # Convert the 'InstalmentDate' columns to datetime to ensure consistency
-            try:
-                lms_schedule_df['InstalmentDate'] = pd.to_datetime(lms_schedule_df['InstalmentDate'], errors='coerce')
-                satisfied_svasti_df['InstalmentDate'] = pd.to_datetime(satisfied_svasti_df['InstalmentDate'], errors='coerce')
-            except Exception as e:
-                st.error(f"Error converting InstalmentDate columns to datetime: {e}")
-                st.stop()
+    # Process entries
+    for index, row in updated_schedule.iterrows():
+        instalment_date = pd.to_datetime(row['InstalmentDate'])
+        
+        # Adjust only if the date is greater than March 31, 2024
+        if instalment_date > pd.Timestamp('2024-03-31'):
+            # Check if the status is due or projected
+            if row['status'] in ['Due', 'Projected']:
+                # Calculate the total excess from satisfied cases
+                excess_principal = satisfied_cases['Principal'].sum()
+                excess_interest = satisfied_cases['Interest'].sum()
 
-            # Display first few rows for debugging
-            st.write("LMS Schedule Data Sample", lms_schedule_df.head())
-            st.write("Satisfied Svasti Data Sample", satisfied_svasti_df.head())
+                # Adjust the principal and interest
+                updated_schedule.at[index, 'Principal'] += excess_principal
+                updated_schedule.at[index, 'Interest'] += excess_interest
+                
+                # Reset satisfied cases after adjustment to avoid double adjustment
+                satisfied_cases = satisfied_cases[satisfied_cases['InstalmentDate'] != instalment_date]
 
-            # Check for any NaT (Not-a-Time) entries in 'InstalmentDate'
-            if lms_schedule_df['InstalmentDate'].isna().any():
-                st.warning("There are invalid dates in the LMS Schedule 'InstalmentDate' column. Please review the file.")
-            if satisfied_svasti_df['InstalmentDate'].isna().any():
-                st.warning("There are invalid dates in the Satisfied Svasti 'InstalmentDate' column. Please review the file.")
+    # Save the updated LMS schedule
+    output_file = "Adjusted_LMS_Schedule.xlsx"
+    updated_schedule.to_excel(output_file, index=False)
+    
+    # Provide a download link for the updated schedule
+    st.download_button("Download Updated LMS Schedule", data=output_file, file_name=output_file)
 
-            # Merge the dataframes based on 'LAN' and 'InstalmentDate'
-            try:
-                merged_df = pd.merge(
-                    lms_schedule_df, 
-                    satisfied_svasti_df[['LAN', 'InstalmentDate', 'status']], 
-                    on=['LAN', 'InstalmentDate'], 
-                    how='left'
-                )
-            except Exception as e:
-                st.error(f"Error during merging: {e}")
-                st.stop()
+    # Display the final adjusted schedule
+    st.write("Updated LMS Schedule:")
+    st.dataframe(updated_schedule)
 
-            # Check if the merge added the 'status' column from the satisfied_svasti_df
-            if 'status' in merged_df.columns:
-                # Fill missing 'status' values from the original LMS data if available
-                if 'status' in lms_schedule_df.columns:
-                    merged_df['status'] = merged_df['status'].combine_first(lms_schedule_df['status'])
-                merged_df['status'] = merged_df['status'].fillna('Not Available')
-            else:
-                st.error("The 'status' column could not be found in the merged data. Please verify your files.")
-                st.stop()
-
-            # Display the merged dataframe
-            st.subheader("Updated LMS Schedule")
-            st.write(merged_df)
-
-            # Provide a download link for the updated LMS schedule
-            @st.cache_data
-            def convert_df_to_excel(df):
-                # Create an in-memory output file
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name='Updated Schedule')
-                processed_data = output.getvalue()
-                return processed_data
-
-            updated_file = convert_df_to_excel(merged_df)
-            st.download_button(
-                label="Download Updated LMS Schedule",
-                data=updated_file,
-                file_name="Updated_LMS_Schedule.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
-else:
-    st.info("Please upload both the LMS Schedule and Satisfied Svasti files to proceed.")
