@@ -35,13 +35,15 @@ if lms_schedule_file and satisfied_svasti_file:
 
             # Merge the dataframes based on 'LAN' and 'InstalmentDate'
             merged_df = pd.merge(lms_schedule_df, satisfied_svasti_df[['LAN', 'InstalmentDate', 'status']], 
-                                 on=['LAN', 'InstalmentDate'], how='left', suffixes=('', '_svasti'))
+                                 on=['LAN', 'InstalmentDate'], how='left')
 
-            # Update the 'status' in the LMS schedule based on the matched data
-            merged_df['status'] = merged_df['status_svasti'].combine_first(merged_df['status'])
-
-            # Drop the 'status_svasti' column as it's no longer needed
-            merged_df.drop(columns=['status_svasti'], inplace=True)
+            # Check if the merge added the 'status' column from the satisfied_svasti_df
+            if 'status' in merged_df.columns:
+                # Update the 'status' in the LMS schedule based on the matched data
+                merged_df['status'] = merged_df['status'].combine_first(lms_schedule_df['status'])
+            else:
+                st.error("The merge operation did not add the 'status' column. Please check the data in your files.")
+                st.stop()
 
             # Display the merged dataframe
             st.subheader("Updated LMS Schedule")
