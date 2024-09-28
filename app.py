@@ -29,6 +29,10 @@ if lms_schedule_file and satisfied_svasti_file:
         elif not all(col in satisfied_svasti_df.columns for col in required_columns_svasti):
             st.error(f"Satisfied Svasti file must contain columns: {required_columns_svasti}")
         else:
+            # Convert the 'InstalmentDate' columns to datetime to ensure consistency
+            lms_schedule_df['InstalmentDate'] = pd.to_datetime(lms_schedule_df['InstalmentDate'], errors='coerce')
+            satisfied_svasti_df['InstalmentDate'] = pd.to_datetime(satisfied_svasti_df['InstalmentDate'], errors='coerce')
+
             # Merge the dataframes based on 'LAN' and 'InstalmentDate'
             merged_df = pd.merge(lms_schedule_df, satisfied_svasti_df[['LAN', 'InstalmentDate', 'status']], 
                                  on=['LAN', 'InstalmentDate'], how='left', suffixes=('', '_svasti'))
