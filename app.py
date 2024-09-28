@@ -76,7 +76,11 @@ lms_file = st.file_uploader("Upload LMS Schedule File", type=["xlsx"])
 # File upload for Partner schedule
 partner_file = st.file_uploader("Upload Partner Schedule File", type=["xlsx"])
 
-if lms_file and partner_file:
+# Debugging: Show uploaded files
+st.write("LMS File Uploaded:", lms_file)
+st.write("Partner File Uploaded:", partner_file)
+
+if lms_file is not None and partner_file is not None:
     output = update_lms_schedule(lms_file, partner_file)
     st.success(f"Updated LMS Schedule saved to {output}")
 else:
