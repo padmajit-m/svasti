@@ -1,95 +1,72 @@
 import pandas as pd
-import streamlit as st
 
-# Title of the application
-st.title("Loan Repayment Schedule Adjuster")
-
-# Upload LMS Schedule File
-lms_file = st.file_uploader("Upload LMS Schedule File", type=["xlsx"])
-# Upload Partner Schedule File
-partner_file = st.file_uploader("Upload Partner Schedule File", type=["xlsx"])
-
-if lms_file and partner_file:
-    # Load the files into DataFrames
+def update_lms_schedule(lms_file, partner_file, system_file):
+    # Load the LMS, Partner, and System schedules
     lms_schedule = pd.read_excel(lms_file)
     partner_schedule = pd.read_excel(partner_file)
+    system_schedule = pd.read_excel(system_file)
 
-    # Display the uploaded data for reference
-    st.write("LMS Schedule Data:")
-    st.dataframe(lms_schedule)
-    
-    st.write("Partner Schedule Data:")
-    st.dataframe(partner_schedule)
+    # Convert InstalmentDate columns to datetime format
+    lms_schedule['InstalmentDate'] = pd.to_datetime(lms_schedule['InstalmentDate'], errors='coerce')
+    partner_schedule['InstalmentDate'] = pd.to_datetime(partner_schedule['InstalmentDate'], errors='coerce')
+    system_schedule['InstalmentDate'] = pd.to_datetime(system_schedule['InstalmentDate'], errors='coerce')
 
-    # Filter out satisfied cases
-    satisfied_cases = lms_schedule[lms_schedule['status'] == 'Satisfied']
-    unsatisfied_cases = lms_schedule[lms_schedule['status'] != 'Satisfied']
-
-    # Initialize a new DataFrame for the updated LMS schedule
-    updated_schedule = lms_schedule.copy()
-
-    # Initialize a list for remarks
+    # Initialize a list to collect remarks
     remarks = []
 
-    # Process entries for unsatisfied cases
-    for index, row in unsatisfied_cases.iterrows():
-        instalment_date = pd.to_datetime(row['InstalmentDate'])
-        lan = row['LAN']
-        
-        # Adjust only if the date is greater than March 31, 2024
-        if instalment_date > pd.Timestamp('2024-03-31'):
-            # Check if the status is due or projected
-            if row['status'] in ['Due', 'Projected']:
-                # Calculate the total excess from satisfied cases
-                excess_principal = satisfied_cases['Principal'].sum()
-                excess_interest = satisfied_cases['Interest'].sum()
+    # Loop through the partner schedule to adjust LMS schedule
+    for _, partner_row in partner_schedule.iterrows():
+        lan = partner_row['LAN']
+        partner_date = partner_row['InstalmentDate']
 
-                # Adjust the principal and interest
-                updated_schedule.at[index, 'Principal'] += excess_principal
-                updated_schedule.at[index, 'Interest'] += excess_interest
+        # Filter LMS schedule for the matching LAN
+        lms_matches = lms_schedule[lms_schedule['LAN'] == lan]
 
-                # Generate remarks for the adjustment
-                remarks.append(f"Adjusted principal and interest by {excess_principal} and {excess_interest} respectively for LAN {lan}.")
+        # Check for satisfied status in LMS schedule
+        satisfied_rows = lms_matches[lms_matches['status'] == 'Satisfied']
 
-    # Match demands as per partner schedule for unsatisfied cases
-    for lan in unsatisfied_cases['LAN'].unique():
-        # Get the number of demands in partner schedule for this LAN
-        partner_demands = partner_schedule[partner_schedule['LAN'] == lan]
-        total_partner_demands = len(partner_demands)
+        # If there are satisfied entries, skip them for changes
+        if not satisfied_rows.empty:
+            continue
 
-        # Get the number of demands in LMS for this LAN
-        current_demand_count = len(updated_schedule[updated_schedule['LAN'] == lan])
+        # Find the corresponding rows in LMS that are Due or Projected
+        due_or_projected_rows = lms_matches[(lms_matches['status'] == 'Due') | (lms_matches['status'] == 'Projected')]
 
-        # If partner demands are more than current demands, add the missing demands
-        if total_partner_demands > current_demand_count:
-            needed_demands = total_partner_demands - current_demand_count
-            remarks.append(f"Added {needed_demands} demands for LAN {lan} to match partner schedule.")
+        # Adjust the LMS schedule according to the partner schedule
+        for _, lms_row in due_or_projected_rows.iterrows():
+            if lms_row['InstalmentDate'] > pd.Timestamp('2024-03-31'):
+                # Calculate adjustments based on partner schedule
+                principal_difference = partner_row['Principal'] - lms_row['Principal']
+                interest_difference = partner_row['Interest'] - lms_row['Interest']
 
-            for _ in range(needed_demands):
-                # Create a new row with adjusted values
-                new_row = {
-                    'LAN': lan,
-                    'InstalmentNumber': current_demand_count + 1,  # Increment demand number
-                    'InstalmentDate': instalment_date + pd.DateOffset(months=1),  # Next month
-                    'Amount': 0,  # Placeholder for Amount
-                    'Principal': 0,  # Placeholder for Principal
-                    'Interest': 0,  # Placeholder for Interest
-                    'BalanceOutstanding': 0,  # Placeholder for BalanceOutstanding
-                    'status': 'Projected',  # Default to Projected
-                }
-                updated_schedule = updated_schedule.append(new_row, ignore_index=True)
-                current_demand_count += 1  # Update current demand count for the next iteration
+                # Adjust Principal and Interest
+                lms_row['Principal'] += principal_difference
+                lms_row['Interest'] += interest_difference
 
-    # Add remarks to the updated schedule
-    updated_schedule['Remarks'] = remarks + [''] * (len(updated_schedule) - len(remarks))
+                # Record remarks for adjustments
+                remarks.append(f"Adjusted for LAN {lan} on {lms_row['InstalmentDate'].date()} | "
+                               f"Adjusted Principal: {principal_difference}, "
+                               f"Adjusted Interest: {interest_difference}")
 
-    # Save the updated LMS schedule
-    output_file = "Adjusted_LMS_Schedule.xlsx"
-    updated_schedule.to_excel(output_file, index=False)
+        # Handle mismatched demands
+        partner_demands = partner_schedule[partner_schedule['LAN'] == lan].shape[0]
+        lms_demands = lms_matches.shape[0]
+
+        if partner_demands > lms_demands:
+            remarks.append(f"Matched {partner_demands - lms_demands} additional demands for LAN {lan} based on partner schedule.")
+
+    # Update the remarks in the LMS schedule
+    lms_schedule['Remarks'] = pd.Series(remarks)
+
+    # Save the updated LMS schedule to a new Excel file
+    output_file = 'Updated_LMS_Schedule.xlsx'
+    lms_schedule.to_excel(output_file, index=False)
     
-    # Provide a download link for the updated schedule
-    st.download_button("Download Updated LMS Schedule", data=output_file, file_name=output_file)
+    return output_file
 
-    # Display the final adjusted schedule
-    st.write("Updated LMS Schedule:")
-    st.dataframe(updated_schedule)
+# Example usage
+lms_file_path = 'path_to_your_lms_schedule.xlsx'  # Replace with your LMS schedule file path
+partner_file_path = 'path_to_your_partner_schedule.xlsx'  # Replace with your Partner schedule file path
+system_file_path = 'path_to_your_system_schedule.xlsx'  # Replace with your System schedule file path
+output = update_lms_schedule(lms_file_path, partner_file_path, system_file_path)
+print(f"Updated LMS Schedule saved to {output}")
