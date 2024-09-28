@@ -34,16 +34,30 @@ if lms_schedule_file and satisfied_svasti_file:
             st.error(f"Satisfied Svasti file must contain columns: {required_columns_svasti}")
         else:
             # Convert the 'InstalmentDate' columns to datetime to ensure consistency
-            lms_schedule_df['InstalmentDate'] = pd.to_datetime(lms_schedule_df['InstalmentDate'], errors='coerce')
-            satisfied_svasti_df['InstalmentDate'] = pd.to_datetime(satisfied_svasti_df['InstalmentDate'], errors='coerce')
+            try:
+                lms_schedule_df['InstalmentDate'] = pd.to_datetime(lms_schedule_df['InstalmentDate'], errors='coerce')
+                satisfied_svasti_df['InstalmentDate'] = pd.to_datetime(satisfied_svasti_df['InstalmentDate'], errors='coerce')
+            except Exception as e:
+                st.error(f"Error converting InstalmentDate columns to datetime: {e}")
+                st.stop()
+
+            # Check for any NaT (Not-a-Time) entries in 'InstalmentDate'
+            if lms_schedule_df['InstalmentDate'].isna().any():
+                st.warning("There are invalid dates in the LMS Schedule 'InstalmentDate' column. Please review the file.")
+            if satisfied_svasti_df['InstalmentDate'].isna().any():
+                st.warning("There are invalid dates in the Satisfied Svasti 'InstalmentDate' column. Please review the file.")
 
             # Merge the dataframes based on 'LAN' and 'InstalmentDate'
-            merged_df = pd.merge(lms_schedule_df, satisfied_svasti_df[['LAN', 'InstalmentDate', 'status']], 
-                                 on=['LAN', 'InstalmentDate'], how='left')
+            try:
+                merged_df = pd.merge(lms_schedule_df, satisfied_svasti_df[['LAN', 'InstalmentDate', 'status']], 
+                                     on=['LAN', 'InstalmentDate'], how='left')
+            except Exception as e:
+                st.error(f"Error during merging: {e}")
+                st.stop()
 
             # Check if the merge added the 'status' column from the satisfied_svasti_df
             if 'status' in merged_df.columns:
-                # Display the merged dataframe with the 'status' column filled
+                # Fill missing 'status' values from the original LMS data if available
                 merged_df['status'] = merged_df['status'].combine_first(lms_schedule_df.get('status', ''))
             else:
                 st.error("The 'status' column could not be found in the merged data. Please verify your files.")
