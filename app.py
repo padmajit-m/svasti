@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import io  # Import io for handling in-memory file operations
 
 # Streamlit app title
 st.title("LMS Schedule Status Updater")
@@ -80,7 +81,12 @@ if lms_schedule_file and satisfied_svasti_file:
             # Provide a download link for the updated LMS schedule
             @st.cache_data
             def convert_df_to_excel(df):
-                return df.to_excel(index=False, engine='openpyxl')
+                # Create an in-memory output file
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, index=False, sheet_name='Updated Schedule')
+                processed_data = output.getvalue()
+                return processed_data
 
             updated_file = convert_df_to_excel(merged_df)
             st.download_button(
