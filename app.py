@@ -1,4 +1,5 @@
 import pandas as pd
+import streamlit as st
 
 def update_lms_schedule(lms_file, partner_file):
     # Load the LMS and Partner schedules
@@ -66,8 +67,17 @@ def update_lms_schedule(lms_file, partner_file):
     
     return output_file
 
-# Example usage
-lms_file_path = 'path_to_your_lms_schedule.xlsx'
-partner_file_path = 'path_to_your_partner_schedule.xlsx'
-output = update_lms_schedule(lms_file_path, partner_file_path)
-print(f"Updated LMS Schedule saved to {output}")
+# Streamlit interface
+st.title("LMS Schedule Status Updater")
+
+# File upload for LMS schedule
+lms_file = st.file_uploader("Upload LMS Schedule File", type=["xlsx"])
+
+# File upload for Partner schedule
+partner_file = st.file_uploader("Upload Partner Schedule File", type=["xlsx"])
+
+if lms_file and partner_file:
+    output = update_lms_schedule(lms_file, partner_file)
+    st.success(f"Updated LMS Schedule saved to {output}")
+else:
+    st.warning("Please upload both LMS and Partner schedule files.")
