@@ -6,18 +6,6 @@ def update_lms_schedule(lms_file, partner_file):
     lms_schedule = pd.read_excel(lms_file)
     partner_schedule = pd.read_excel(partner_file)
 
-    # Aggregate duplicate entries in LMS Schedule
-    if lms_schedule['LAN'].duplicated().any():
-        st.warning("Duplicate LAN values found in LMS Schedule. Aggregating duplicates...")
-        lms_schedule = lms_schedule.groupby('LAN').agg({
-            'InstalmentNumber': 'first',  # Keep the first InstalmentNumber
-            'InstalmentDate': 'first',    # Keep the first InstalmentDate
-            'Amount': 'sum',               # Sum amounts
-            'Principal': 'sum',            # Sum principals
-            'Interest': 'sum',             # Sum interests
-            'BalanceOutstanding': 'first'  # Keep the first BalanceOutstanding
-        }).reset_index()
-
     # Initialize a list to collect results for final DataFrame
     combined_schedule = []
 
@@ -33,7 +21,6 @@ def update_lms_schedule(lms_file, partner_file):
         # Find corresponding LMS rows
         lms_rows = lms_schedule[lms_schedule['LAN'] == lan]
 
-        # Check if there are matching entries in LMS
         if not lms_rows.empty:
             for _, lms_row in lms_rows.iterrows():
                 lms_amount = lms_row['Amount']
