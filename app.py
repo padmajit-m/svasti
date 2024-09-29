@@ -10,6 +10,11 @@ def update_lms_schedule(lms_file, partner_file):
     lms_schedule['InstalmentDate'] = pd.to_datetime(lms_schedule['InstalmentDate'], errors='coerce')
     partner_schedule['InstalmentDate'] = pd.to_datetime(partner_schedule['InstalmentDate'], errors='coerce')
 
+    # Check for duplicates in LMS schedule and handle them
+    if lms_schedule['LAN'].duplicated().any():
+        st.warning("Duplicate LAN values found in LMS Schedule. Resolving by keeping the first occurrence.")
+        lms_schedule = lms_schedule.drop_duplicates(subset='LAN', keep='first')
+
     # Prepare a DataFrame for the comparison
     comparison_df = []
 
