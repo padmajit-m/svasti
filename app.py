@@ -12,7 +12,7 @@ def update_lms_schedule(lms_file, partner_file):
 
     # Prepare a list for the updated schedule
     updated_schedule = []
-
+    
     # Progress bar
     total_rows = len(partner_schedule)
     progress_bar = st.progress(0)
@@ -20,46 +20,55 @@ def update_lms_schedule(lms_file, partner_file):
     # Iterate over partner schedule to adjust LMS
     for idx, partner_row in partner_schedule.iterrows():
         lan = partner_row['LAN']
-        partner_date = partner_row['InstalmentDate']
         partner_amount = partner_row['Amount']
         partner_principal = partner_row['Principal']
         partner_interest = partner_row['Interest']
+        partner_due_date = partner_row['InstalmentDate']
 
         # Find corresponding rows in LMS schedule
         lms_rows = lms_schedule[lms_schedule['LAN'] == lan]
 
+        # Initialize excess adjustment for this LAN
+        excess_adjustment = 0
+        is_first_due_adjusted = False
+
         for lms_idx, lms_row in lms_rows.iterrows():
             if lms_row['status'] == 'Satisfied':
-                # Skip satisfied rows
-                updated_schedule.append({
-                    **lms_row,
-                    'Remarks': 'No changes made, status is Satisfied'
-                })
-                continue
+                # Calculate the total amount for satisfied cases
+                satisfied_total = lms_row['Principal'] + lms_row['Interest']
+                # Check if there is excess or less payment
+                if satisfied_total < partner_amount:
+                    excess_adjustment += (partner_amount - satisfied_total)  # Track excess
 
-            # Update values if the instalment date is greater than 31st March 2024
-            if lms_row['InstalmentDate'] > pd.Timestamp('2024-03-31'):
-                # Calculate the new principal and interest if applicable
-                new_principal = lms_row['Principal'] + partner_principal
-                new_interest = lms_row['Interest'] + partner_interest
-
-                # Append updated row
-                updated_schedule.append({
-                    **lms_row,
-                    'Principal': new_principal,
-                    'Interest': new_interest,
-                    'Remarks': f'Adjusted Principal by {partner_principal}, Interest by {partner_interest}'
-                })
             else:
-                # Keep the original row if the date is before or on 31st March 2024
-                updated_schedule.append({
-                    **lms_row,
-                    'Remarks': 'No changes made, date is before 31 March 2024'
-                })
+                # Adjust the first upcoming due if not yet adjusted
+                if not is_first_due_adjusted and lms_row['InstalmentDate'] > pd.Timestamp('2024-07-31'):
+                    # Update the first due based on any excess
+                    adjusted_principal = lms_row['Principal'] + excess_adjustment
+                    adjusted_amount = adjusted_principal + lms_row['Interest']
 
-            # Update Balance Outstanding
-            previous_month_outstanding = lms_row['BalanceOutstanding']
-            current_month_principal = lms_row['Principal']
+                    # Update the row for first due
+                    updated_schedule.append({
+                        **lms_row,
+                        'Principal': adjusted_principal,
+                        'Amount': adjusted_amount,
+                        'Remarks': f'Adjusted by excess of {excess_adjustment}'
+                    })
+
+                    # Set flag that the first due has been adjusted
+                    is_first_due_adjusted = True
+
+                else:
+                    # Keep the original row for other dues
+                    updated_schedule.append({
+                        **lms_row,
+                        'Remarks': 'No changes made, already satisfied or before adjustment'
+                    })
+
+        # Update Balance Outstanding
+        if updated_schedule:  # Check if there's any entry
+            previous_month_outstanding = updated_schedule[-1].get('BalanceOutstanding', lms_row['BalanceOutstanding'])
+            current_month_principal = updated_schedule[-1].get('Principal', lms_row['Principal'])
             current_outstanding = previous_month_outstanding - current_month_principal
 
             # Update the Balance Outstanding
