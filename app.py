@@ -9,6 +9,10 @@ def update_lms_schedule(lms_file, partner_file):
     # Initialize a list to collect results for final DataFrame
     combined_schedule = []
 
+    # Initialize progress bar
+    progress_bar = st.progress(0)
+    total_rows = len(partner_schedule)
+
     # Iterate through each row in the partner schedule
     for index, partner_row in partner_schedule.iterrows():
         lan = partner_row['LAN']
@@ -60,6 +64,7 @@ def update_lms_schedule(lms_file, partner_file):
                                                               principal_match == "Match",
                                                               interest_match == "Match"]) else "Mismatch found"
                 })
+        
         else:
             # If no corresponding LMS row found
             combined_schedule.append({
@@ -81,6 +86,10 @@ def update_lms_schedule(lms_file, partner_file):
                 "Interest Match": "N/A",
                 "Remarks": "No corresponding LMS entry found."
             })
+
+        # Update progress bar
+        progress = (index + 1) / total_rows
+        progress_bar.progress(progress)
 
     # Create DataFrame from combined schedule
     result_df = pd.DataFrame(combined_schedule)
