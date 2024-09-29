@@ -13,8 +13,12 @@ def update_lms_schedule(lms_file, partner_file):
     # Prepare a list for the updated schedule
     updated_schedule = []
 
+    # Progress bar
+    total_rows = len(partner_schedule)
+    progress_bar = st.progress(0)
+
     # Iterate over partner schedule to adjust LMS
-    for _, partner_row in partner_schedule.iterrows():
+    for idx, partner_row in partner_schedule.iterrows():
         lan = partner_row['LAN']
         partner_date = partner_row['InstalmentDate']
         partner_amount = partner_row['Amount']
@@ -24,7 +28,7 @@ def update_lms_schedule(lms_file, partner_file):
         # Find corresponding rows in LMS schedule
         lms_rows = lms_schedule[lms_schedule['LAN'] == lan]
 
-        for idx, lms_row in lms_rows.iterrows():
+        for lms_idx, lms_row in lms_rows.iterrows():
             if lms_row['status'] == 'Satisfied':
                 # Skip satisfied rows
                 updated_schedule.append({
@@ -61,6 +65,10 @@ def update_lms_schedule(lms_file, partner_file):
             # Update the Balance Outstanding
             updated_schedule[-1]['BalanceOutstanding'] = current_outstanding
 
+        # Update the progress bar
+        progress_percentage = (idx + 1) / total_rows
+        progress_bar.progress(progress_percentage)
+
     # Create DataFrame for updated schedule
     updated_schedule_df = pd.DataFrame(updated_schedule)
 
@@ -68,7 +76,7 @@ def update_lms_schedule(lms_file, partner_file):
     updated_file_name = "Updated_LMS_Schedule.xlsx"
     updated_schedule_df.to_excel(updated_file_name, index=False)
 
-    return updated_schedule_df
+    return updated_schedule_df, updated_file_name
 
 # Streamlit UI
 st.title("LMS Schedule Status Updater")
@@ -79,7 +87,7 @@ partner_file = st.file_uploader("Upload Partner Schedule File", type=["xlsx"])
 
 if lms_file and partner_file:
     st.write("Processing...")
-    output = update_lms_schedule(lms_file, partner_file)
+    output, updated_file_name = update_lms_schedule(lms_file, partner_file)
     
     # Display original and updated schedules side by side
     st.subheader("Original LMS Schedule")
