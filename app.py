@@ -1,96 +1,97 @@
 import pandas as pd
 import streamlit as st
 
-# Title of the app
-st.title("LMS and Partner Schedule Comparison")
+def update_lms_schedule(lms_file, partner_file):
+    # Read the files
+    lms_schedule = pd.read_excel(lms_file)
+    partner_schedule = pd.read_excel(partner_file)
 
-# Step 1: Upload files using Streamlit's file uploader
-uploaded_files = st.file_uploader("Upload Partner and LMS Schedule files", type=["xlsx"], accept_multiple_files=True)
+    # Ensure the 'InstalmentDate' columns are datetime
+    lms_schedule['InstalmentDate'] = pd.to_datetime(lms_schedule['InstalmentDate'], errors='coerce')
+    partner_schedule['InstalmentDate'] = pd.to_datetime(partner_schedule['InstalmentDate'], errors='coerce')
 
-# Initialize variables
-partner_schedule = None
-lms_schedule = None
+    # Prepare a list for the updated schedule
+    updated_schedule = []
 
-# Read the uploaded files
-if uploaded_files:
-    for uploaded_file in uploaded_files:
-        # Check file name and read accordingly
-        if "partner_schedule" in uploaded_file.name:
-            partner_schedule = pd.read_excel(uploaded_file)
-            st.write("Partner Schedule loaded successfully.")
-        elif "lms_schedule" in uploaded_file.name:
-            lms_schedule = pd.read_excel(uploaded_file)
-            st.write("LMS Schedule loaded successfully")
+    # Iterate over partner schedule to adjust LMS
+    for _, partner_row in partner_schedule.iterrows():
+        lan = partner_row['LAN']
+        partner_date = partner_row['InstalmentDate']
+        partner_amount = partner_row['Amount']
+        partner_principal = partner_row['Principal']
+        partner_interest = partner_row['Interest']
 
-    # Check if both schedules are loaded
-    if partner_schedule is not None and lms_schedule is not None:
-        # Step 2: Handle different date formats
-        partner_schedule['InstalmentDate'] = pd.to_datetime(partner_schedule['InstalmentDate'], format='%Y/%m/%d')
-        lms_schedule['InstalmentDate'] = pd.to_datetime(lms_schedule['InstalmentDate'], format='%Y-%m-%d')
+        # Find corresponding rows in LMS schedule
+        lms_rows = lms_schedule[lms_schedule['LAN'] == lan]
 
-        # Step 3: Merge the DataFrames on 'LAN' and 'InstalmentNumber'
-        merged_df = partner_schedule.merge(lms_schedule, on=['LAN', 'InstalmentNumber'], how='outer', suffixes=('_partner', '_lms'), indicator=True)
+        for idx, lms_row in lms_rows.iterrows():
+            if lms_row['status'] == 'Satisfied':
+                # Skip satisfied rows
+                updated_schedule.append({
+                    **lms_row,
+                    'Remarks': 'No changes made, status is Satisfied'
+                })
+                continue
 
-        # Function to compare values and add remarks
-        def compare_rows(row):
-            remarks = []
-            if row['_merge'] == 'left_only':
-                return 'LMS Missing Instalment'
-            elif row['_merge'] == 'right_only':
-                return 'Partner Missing Instalment'
+            # Update values if the instalment date is greater than 31st March 2024
+            if lms_row['InstalmentDate'] > pd.Timestamp('2024-03-31'):
+                # Calculate the new principal and interest if applicable
+                new_principal = lms_row['Principal'] + partner_principal
+                new_interest = lms_row['Interest'] + partner_interest
+
+                # Append updated row
+                updated_schedule.append({
+                    **lms_row,
+                    'Principal': new_principal,
+                    'Interest': new_interest,
+                    'Remarks': f'Adjusted Principal by {partner_principal}, Interest by {partner_interest}'
+                })
             else:
-                if row['InstalmentDate_partner'] != row['InstalmentDate_lms']:
-                    remarks.append('InstalmentDate Mismatch')
-                if row['Amount_partner'] != row['Amount_lms']:
-                    remarks.append('Amount Mismatch')
-                if row['Principal_partner'] != row['Principal_lms']:
-                    remarks.append('Principal Mismatch')
-                if row['Interest_partner'] != row['Interest_lms']:
-                    remarks.append('Interest Mismatch')
-                if row['BalanceOutstanding_partner'] != row['BalanceOutstanding_lms']:
-                    remarks.append('BalanceOutstanding Mismatch')
-                return ', '.join(remarks) if remarks else 'Match'
+                # Keep the original row if the date is before or on 31st March 2024
+                updated_schedule.append({
+                    **lms_row,
+                    'Remarks': 'No changes made, date is before 31 March 2024'
+                })
 
-        # Apply the comparison function to each row
-        merged_df['Remarks'] = merged_df.apply(compare_rows, axis=1)
+            # Update Balance Outstanding
+            previous_month_outstanding = lms_row['BalanceOutstanding']
+            current_month_principal = lms_row['Principal']
+            current_outstanding = previous_month_outstanding - current_month_principal
 
-        # Identify missing installments
-        merged_df['MissingInstallment'] = merged_df['_merge'].apply(lambda x: 'Yes' if x != 'both' else 'No')
+            # Update the Balance Outstanding
+            updated_schedule[-1]['BalanceOutstanding'] = current_outstanding
 
-        # Calculate differences
-        merged_df['principle_mismatch (E-J)'] = merged_df['Principal_partner'] - merged_df['Principal_lms']
-        merged_df['interest_mismatch (F-K)'] = merged_df['Interest_partner'] - merged_df['Interest_lms']
-        merged_df['Diff amount (partner-encore)'] = merged_df['Amount_partner'] - merged_df['Amount_lms']
-        merged_df['Outstanding balance'] = merged_df['BalanceOutstanding_partner'] - merged_df['BalanceOutstanding_lms']
-        merged_df['Diff principle(partner-encore)'] = merged_df['Principal_partner'] - merged_df['Principal_lms']
-        merged_df['Diff int(partner-encore)'] = merged_df['Interest_partner'] - merged_df['Interest_lms']
+    # Create DataFrame for updated schedule
+    updated_schedule_df = pd.DataFrame(updated_schedule)
 
-        # Select and rename the necessary columns
-        result = merged_df[[  
-            'LAN', 'InstalmentNumber', 'InstalmentDate_partner', 'Amount_partner', 'Principal_partner', 
-            'Interest_partner', 'BalanceOutstanding_partner',
-            'InstalmentDate_lms', 'Amount_lms', 'Principal_lms', 'Interest_lms', 'BalanceOutstanding_lms',
-            'principle_mismatch (E-J)', 'interest_mismatch (F-K)', 'Remarks', 'MissingInstallment',
-            'Diff amount (partner-encore)', 'Outstanding balance', 'Diff principle(partner-encore)', 
-            'Diff int(partner-encore)'
-        ]]
+    # Save to Excel
+    updated_file_name = "Updated_LMS_Schedule.xlsx"
+    updated_schedule_df.to_excel(updated_file_name, index=False)
 
-        # Format date columns to 'yyyy-mm-dd'
-        date_columns = ['InstalmentDate_partner', 'InstalmentDate_lms']
-        result[date_columns] = result[date_columns].apply(lambda x: x.dt.strftime('%Y-%m-%d'))
+    return updated_schedule_df
 
-        # Save the result to a new Excel file
-        output_file = 'detailed_comparison_report_with_mismatches_and_differences.xlsx'
-        result.to_excel(output_file, index=False)
-        
-        # Step 8: Provide download link for the generated Excel file
-        st.download_button(label="Download Detailed Comparison Report", data=output_file, file_name=output_file)
+# Streamlit UI
+st.title("LMS Schedule Status Updater")
 
-        # Display the results in the Streamlit app
-        st.write("Comparison Results:")
-        st.dataframe(result)
+# Upload Files
+lms_file = st.file_uploader("Upload LMS Schedule File", type=["xlsx"])
+partner_file = st.file_uploader("Upload Partner Schedule File", type=["xlsx"])
 
-    else:
-        st.warning("Please upload both LMS and Partner schedule files.")
+if lms_file and partner_file:
+    st.write("Processing...")
+    output = update_lms_schedule(lms_file, partner_file)
+    
+    # Display original and updated schedules side by side
+    st.subheader("Original LMS Schedule")
+    st.dataframe(pd.read_excel(lms_file))
+
+    st.subheader("Partner Schedule")
+    st.dataframe(pd.read_excel(partner_file))
+
+    st.subheader("Updated LMS Schedule")
+    st.dataframe(output)
+
+    st.success(f"Updated LMS Schedule saved to {updated_file_name}")
+    st.download_button("Download Updated Schedule", updated_file_name)
 else:
-    st.info("Please upload the required Excel files.")
+    st.warning("Please upload both LMS and Partner schedule files.")
