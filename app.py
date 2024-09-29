@@ -1,88 +1,76 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import numpy as np
+import os
 
 def update_lms_schedule(lms_file, partner_file):
-    # Read the files
+    # Read the uploaded Excel files
     lms_schedule = pd.read_excel(lms_file)
     partner_schedule = pd.read_excel(partner_file)
 
-    # Ensure the 'InstalmentDate' columns are datetime
-    lms_schedule['InstalmentDate'] = pd.to_datetime(lms_schedule['InstalmentDate'], errors='coerce')
-    partner_schedule['InstalmentDate'] = pd.to_datetime(partner_schedule['InstalmentDate'], errors='coerce')
-
-    # Prepare a list for the updated schedule
+    # Initialize the list for the updated schedule
     updated_schedule = []
+    remarks = []
     
-    # Progress bar
-    total_rows = len(partner_schedule)
-    progress_bar = st.progress(0)
+    # Convert dates
+    lms_schedule['InstalmentDate'] = pd.to_datetime(lms_schedule['InstalmentDate'])
+    partner_schedule['InstalmentDate'] = pd.to_datetime(partner_schedule['InstalmentDate'])
 
-    # Iterate over partner schedule to adjust LMS
-    for idx, partner_row in partner_schedule.iterrows():
-        lan = partner_row['LAN']
-        partner_amount = partner_row['Amount']
-        partner_principal = partner_row['Principal']
-        partner_interest = partner_row['Interest']
-        partner_due_date = partner_row['InstalmentDate']
-
-        # Find corresponding rows in LMS schedule
+    # Extract unique LANs from partner schedule
+    unique_lans = partner_schedule['LAN'].unique()
+    
+    for lan in unique_lans:
+        partner_rows = partner_schedule[partner_schedule['LAN'] == lan]
         lms_rows = lms_schedule[lms_schedule['LAN'] == lan]
 
-        # Initialize excess adjustment for this LAN
-        excess_adjustment = 0
-        is_first_due_adjusted = False
+        # Track the number of satisfied rows
+        satisfied_principal = 0
+        satisfied_interest = 0
+        total_satisfied = 0
 
-        for lms_idx, lms_row in lms_rows.iterrows():
-            if lms_row['status'] == 'Satisfied':
-                # Calculate the total amount for satisfied cases
-                satisfied_total = lms_row['Principal'] + lms_row['Interest']
-                # Check if there is excess or less payment
-                if satisfied_total < partner_amount:
-                    excess_adjustment += (partner_amount - satisfied_total)  # Track excess
+        # Calculate satisfied amounts
+        for _, row in lms_rows.iterrows():
+            if row['status'] == 'Satisfied':
+                satisfied_principal += row['Principal']
+                satisfied_interest += row['Interest']
+                total_satisfied += 1
 
+        # Process upcoming demands for both satisfied and not satisfied cases
+        for index, partner_row in partner_rows.iterrows():
+            if index < len(lms_rows):
+                lms_row = lms_rows.iloc[index]
+                updated_row = lms_row.copy()
+
+                if lms_row['status'] != 'Satisfied':
+                    # Adjust based on satisfied amounts
+                    adjusted_principal = updated_row['Principal'] + (satisfied_principal - satisfied_interest)
+                    updated_row['Principal'] = adjusted_principal
+                    updated_row['Amount'] = updated_row['Principal'] + updated_row['Interest']
+                    remarks.append(f"Adjusted principal for LAN {lan}, instalment {updated_row['InstalmentNumber']}.")
+
+                updated_schedule.append(updated_row)
             else:
-                # Adjust the first upcoming due if not yet adjusted
-                if not is_first_due_adjusted and lms_row['InstalmentDate'] > pd.Timestamp('2024-07-31'):
-                    # Update the first due based on any excess
-                    adjusted_principal = lms_row['Principal'] + excess_adjustment
-                    adjusted_amount = adjusted_principal + lms_row['Interest']
-
-                    # Update the row for first due
-                    updated_schedule.append({
-                        **lms_row,
-                        'Principal': adjusted_principal,
-                        'Amount': adjusted_amount,
-                        'Remarks': f'Adjusted by excess of {excess_adjustment}'
-                    })
-
-                    # Set flag that the first due has been adjusted
-                    is_first_due_adjusted = True
-
-                else:
-                    # Keep the original row for other dues
-                    updated_schedule.append({
-                        **lms_row,
-                        'Remarks': 'No changes made, already satisfied or before adjustment'
-                    })
-
-        # Update Balance Outstanding
-        if updated_schedule:  # Check if there's any entry
-            previous_month_outstanding = updated_schedule[-1].get('BalanceOutstanding', lms_row['BalanceOutstanding'])
-            current_month_principal = updated_schedule[-1].get('Principal', lms_row['Principal'])
-            current_outstanding = previous_month_outstanding - current_month_principal
-
-            # Update the Balance Outstanding
-            updated_schedule[-1]['BalanceOutstanding'] = current_outstanding
-
-        # Update the progress bar
-        progress_percentage = (idx + 1) / total_rows
-        progress_bar.progress(progress_percentage)
+                # If there are more demands in the partner schedule
+                new_row = {
+                    'LAN': partner_row['LAN'],
+                    'InstalmentNumber': partner_row['InstalmentNumber'],
+                    'InstalmentDate': partner_row['InstalmentDate'],
+                    'Amount': partner_row['Amount'],
+                    'Principal': partner_row['Principal'],
+                    'Interest': partner_row['Interest'],
+                    'BalanceOutstanding': 0,  # Update logic for balance outstanding
+                    'status': 'Due'  # Default to due for new entries
+                }
+                updated_schedule.append(new_row)
 
     # Create DataFrame for updated schedule
     updated_schedule_df = pd.DataFrame(updated_schedule)
 
-    # Save to Excel
-    updated_file_name = "Updated_LMS_Schedule.xlsx"
+    # Calculate Balance Outstanding logic
+    updated_schedule_df['BalanceOutstanding'] = updated_schedule_df['Principal'].cumsum() - updated_schedule_df['Principal'].shift(fill_value=0).cumsum()
+
+    # Save the updated schedule to a new Excel file
+    updated_file_name = 'Updated_LMS_Schedule.xlsx'
     updated_schedule_df.to_excel(updated_file_name, index=False)
 
     return updated_schedule_df, updated_file_name
@@ -94,9 +82,11 @@ st.title("LMS Schedule Status Updater")
 lms_file = st.file_uploader("Upload LMS Schedule File", type=["xlsx"])
 partner_file = st.file_uploader("Upload Partner Schedule File", type=["xlsx"])
 
+# Process files only when both are uploaded
 if lms_file and partner_file:
-    st.write("Processing...")
-    output, updated_file_name = update_lms_schedule(lms_file, partner_file)
+    with st.spinner("Processing..."):
+        # Call the function to update the LMS schedule
+        output, updated_file_name = update_lms_schedule(lms_file, partner_file)
     
     # Display original and updated schedules side by side
     st.subheader("Original LMS Schedule")
@@ -109,6 +99,10 @@ if lms_file and partner_file:
     st.dataframe(output)
 
     # Provide the download button for the updated Excel file
-    st.download_button("Download Updated Schedule", updated_file_name, file_name=updated_file_name)
+    with open(updated_file_name, "rb") as f:
+        st.download_button("Download Updated Schedule", f, file_name=updated_file_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    # Clean up by removing the updated file after download
+    os.remove(updated_file_name)
 else:
     st.warning("Please upload both LMS and Partner schedule files.")
