@@ -10,14 +10,20 @@ def update_lms_schedule(lms_file, partner_file):
     lms_schedule['InstalmentDate'] = pd.to_datetime(lms_schedule['InstalmentDate'], errors='coerce')
     partner_schedule['InstalmentDate'] = pd.to_datetime(partner_schedule['InstalmentDate'], errors='coerce')
 
+    # Prepare a DataFrame for the comparison
+    comparison_df = []
+
+    # Create a mapping for unique LANs
+    lms_mapping = lms_schedule.set_index('LAN').to_dict(orient='index')
+    
     # Prepare a list for the updated schedule
     updated_schedule = []
-    
+
     # Progress bar
     total_rows = len(partner_schedule)
     progress_bar = st.progress(0)
 
-    # Iterate over partner schedule to adjust LMS
+    # Iterate over partner schedule to compare and adjust LMS
     for idx, partner_row in partner_schedule.iterrows():
         lan = partner_row['LAN']
         partner_amount = partner_row['Amount']
@@ -25,67 +31,89 @@ def update_lms_schedule(lms_file, partner_file):
         partner_interest = partner_row['Interest']
         partner_due_date = partner_row['InstalmentDate']
 
-        # Find corresponding rows in LMS schedule
-        lms_rows = lms_schedule[lms_schedule['LAN'] == lan]
+        # Get the corresponding LMS row
+        lms_row = lms_mapping.get(lan, {})
+        
+        # Initialize comparison result
+        comparison_result = {
+            'LAN': lan,
+            'Partner Amount': partner_amount,
+            'LMS Amount': lms_row.get('Amount', 'N/A'),
+            'Amount Match': partner_amount == lms_row.get('Amount', 0),
+            'Partner Principal': partner_principal,
+            'LMS Principal': lms_row.get('Principal', 'N/A'),
+            'Principal Match': partner_principal == lms_row.get('Principal', 0),
+            'Partner Interest': partner_interest,
+            'LMS Interest': lms_row.get('Interest', 'N/A'),
+            'Interest Match': partner_interest == lms_row.get('Interest', 0),
+            'Instalment Date': partner_due_date,
+            'Remarks': ''
+        }
+        
+        # Add remarks for differences
+        if not comparison_result['Amount Match']:
+            difference = partner_amount - lms_row.get('Amount', 0)
+            comparison_result['Remarks'] += f"Amount Difference: {difference:.2f}. "
+        
+        if not comparison_result['Principal Match']:
+            difference = partner_principal - lms_row.get('Principal', 0)
+            comparison_result['Remarks'] += f"Principal Difference: {difference:.2f}. "
+        
+        if not comparison_result['Interest Match']:
+            difference = partner_interest - lms_row.get('Interest', 0)
+            comparison_result['Remarks'] += f"Interest Difference: {difference:.2f}. "
 
-        # Initialize excess adjustment for this LAN
-        excess_adjustment = 0
-        is_first_due_adjusted = False
+        # Append the comparison result to the DataFrame
+        comparison_df.append(comparison_result)
 
-        for lms_idx, lms_row in lms_rows.iterrows():
-            if lms_row['status'] == 'Satisfied':
-                # Calculate the total amount for satisfied cases
-                satisfied_total = lms_row['Principal'] + lms_row['Interest']
-                # Check if there is excess or less payment
-                if satisfied_total < partner_amount:
-                    excess_adjustment += (partner_amount - satisfied_total)  # Track excess
-
-            else:
-                # Adjust the first upcoming due if not yet adjusted
-                if not is_first_due_adjusted and lms_row['InstalmentDate'] > pd.Timestamp('2024-07-31'):
-                    # Update the first due based on any excess
-                    adjusted_principal = lms_row['Principal'] + excess_adjustment
-                    adjusted_amount = adjusted_principal + lms_row['Interest']
-
-                    # Update the row for first due
-                    updated_schedule.append({
-                        **lms_row,
-                        'Principal': adjusted_principal,
-                        'Amount': adjusted_amount,
-                        'Remarks': f'Adjusted by excess of {excess_adjustment}'
-                    })
-
-                    # Set flag that the first due has been adjusted
-                    is_first_due_adjusted = True
-
-                else:
-                    # Keep the original row for other dues
-                    updated_schedule.append({
-                        **lms_row,
-                        'Remarks': 'No changes made, already satisfied or before adjustment'
-                    })
-
-        # Update Balance Outstanding
-        if updated_schedule:  # Check if there's any entry
-            previous_month_outstanding = updated_schedule[-1].get('BalanceOutstanding', lms_row['BalanceOutstanding'])
-            current_month_principal = updated_schedule[-1].get('Principal', lms_row['Principal'])
-            current_outstanding = previous_month_outstanding - current_month_principal
-
-            # Update the Balance Outstanding
-            updated_schedule[-1]['BalanceOutstanding'] = current_outstanding
-
-        # Update the progress bar
+        # Update progress bar
         progress_percentage = (idx + 1) / total_rows
         progress_bar.progress(progress_percentage)
 
-    # Create DataFrame for updated schedule
-    updated_schedule_df = pd.DataFrame(updated_schedule)
+    # Create DataFrame for comparison
+    comparison_df = pd.DataFrame(comparison_df)
+
+    # Add revised schedule to the DataFrame
+    revised_schedule = []
+
+    # Iterate over comparison results for adjustments
+    for idx, row in comparison_df.iterrows():
+        lan = row['LAN']
+        lms_row = lms_mapping.get(lan, {})
+        
+        if row['Amount Match'] and row['Principal Match'] and row['Interest Match']:
+            # If all match, keep the original
+            revised_schedule.append({
+                'LAN': lan,
+                'Revised Amount': lms_row.get('Amount', 0),
+                'Revised Principal': lms_row.get('Principal', 0),
+                'Revised Interest': lms_row.get('Interest', 0),
+                'Remarks': 'No changes needed'
+            })
+        else:
+            # Adjust the principal and amount based on differences
+            revised_principal = lms_row.get('Principal', 0) + (row['Partner Principal'] - lms_row.get('Principal', 0))
+            revised_amount = revised_principal + lms_row.get('Interest', 0)
+
+            revised_schedule.append({
+                'LAN': lan,
+                'Revised Amount': revised_amount,
+                'Revised Principal': revised_principal,
+                'Revised Interest': lms_row.get('Interest', 0),
+                'Remarks': 'Adjusted based on differences'
+            })
+
+    # Create DataFrame for revised schedule
+    revised_schedule_df = pd.DataFrame(revised_schedule)
+
+    # Combine comparison and revised schedule
+    final_output = comparison_df.merge(revised_schedule_df, on='LAN', how='left')
 
     # Save to Excel
     updated_file_name = "Updated_LMS_Schedule.xlsx"
-    updated_schedule_df.to_excel(updated_file_name, index=False)
+    final_output.to_excel(updated_file_name, index=False)
 
-    return updated_schedule_df, updated_file_name
+    return final_output, updated_file_name
 
 # Streamlit UI
 st.title("LMS Schedule Status Updater")
@@ -98,14 +126,8 @@ if lms_file and partner_file:
     st.write("Processing...")
     output, updated_file_name = update_lms_schedule(lms_file, partner_file)
     
-    # Display original and updated schedules side by side
-    st.subheader("Original LMS Schedule")
-    st.dataframe(pd.read_excel(lms_file))
-
-    st.subheader("Partner Schedule")
-    st.dataframe(pd.read_excel(partner_file))
-
-    st.subheader("Updated LMS Schedule")
+    # Display comparison results
+    st.subheader("Comparison and Revised Schedule")
     st.dataframe(output)
 
     # Auto download link
