@@ -108,7 +108,7 @@ if lms_file and partner_file:
     st.subheader("Updated LMS Schedule")
     st.dataframe(output)
 
-    st.success(f"Updated LMS Schedule saved to {updated_file_name}")
-    st.download_button("Download Updated Schedule", updated_file_name)
+    # Provide the download button for the updated Excel file
+    st.download_button("Download Updated Schedule", updated_file_name, file_name=updated_file_name)
 else:
     st.warning("Please upload both LMS and Partner schedule files.")
