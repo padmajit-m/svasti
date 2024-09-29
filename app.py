@@ -39,7 +39,16 @@ def update_lms_schedule(lms_file, partner_file):
         for index, partner_row in partner_rows.iterrows():
             if index < len(lms_rows):
                 lms_row = lms_rows.iloc[index]
-                updated_row = lms_row.copy()
+                updated_row = {
+                    'LAN': lms_row['LAN'],
+                    'InstalmentNumber': lms_row['InstalmentNumber'],
+                    'InstalmentDate': lms_row['InstalmentDate'],
+                    'Amount': lms_row['Amount'],
+                    'Principal': lms_row['Principal'],
+                    'Interest': lms_row['Interest'],
+                    'BalanceOutstanding': lms_row['BalanceOutstanding'],
+                    'status': lms_row['status'],
+                }
 
                 if lms_row['status'] != 'Satisfied':
                     # Adjust based on satisfied amounts
@@ -58,7 +67,7 @@ def update_lms_schedule(lms_file, partner_file):
                     'Amount': partner_row['Amount'],
                     'Principal': partner_row['Principal'],
                     'Interest': partner_row['Interest'],
-                    'BalanceOutstanding': 0,  # Update logic for balance outstanding
+                    'BalanceOutstanding': 0,  # Set to default for new entries
                     'status': 'Due'  # Default to due for new entries
                 }
                 updated_schedule.append(new_row)
