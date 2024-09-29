@@ -17,6 +17,13 @@ def update_lms_schedule(lms_file, partner_file):
     status_text = st.empty()
     remarks = []
 
+    # Display some initial rows for verification
+    st.subheader("Initial Rows from Partner Schedule")
+    st.dataframe(partner_schedule.head())
+
+    st.subheader("Initial Rows from LMS Schedule")
+    st.dataframe(lms_schedule.head())
+
     # Loop through the partner schedule to adjust LMS schedule
     for idx, partner_row in enumerate(partner_schedule.iterrows(), 1):
         _, partner_row = partner_row
@@ -61,6 +68,10 @@ def update_lms_schedule(lms_file, partner_file):
 
     # Add remarks to LMS schedule (expand list to match the length of LMS schedule)
     lms_schedule['Remarks'] = pd.Series(remarks + [''] * (len(lms_schedule) - len(remarks)))
+
+    # Display some final rows for verification
+    st.subheader("Final Adjusted Rows from LMS Schedule")
+    st.dataframe(lms_schedule.head())
 
     # Save the updated LMS schedule to a new Excel file in memory
     output = io.BytesIO()
