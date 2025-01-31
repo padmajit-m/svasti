@@ -1,60 +1,68 @@
 import streamlit as st
-import pandas as pd
+import requests
+import random
 
-def update_lms_data(file):
-    # Read the uploaded Excel file
-    df = pd.read_excel(file)
+# API Endpoints
+TOKEN_URL = "https://dashboardui.sandbox.kalfin.in/kaleidofin-auth/oauth/token"
+LOAN_CREATION_URL = "https://dashboardui.sandbox.kalfin.in/kaleidofin-server/api/v2/services/creditAnalytics"
+DOCUMENT_UPLOAD_URL = "https://dashboardui.sandbox.kalfin.in/krediline-server/api/v1/partner/loanApplications/{loanApplicationId}/kycDocuments"
 
-    # Assuming the date column is named 'DateDue'
-    df['DateDue'] = pd.to_datetime(df['DateDue'])
+def generate_random_number(length=10):
+    return str(random.randint(10**(length-1), 10**length - 1))
 
-    # Create a new 'Remarks' column
-    df['Remarks'] = ""
+st.title("Loan API UI")
 
-    # Process each row in the dataframe
-    for index, row in df.iterrows():
-        # Skip rows with DateDue before 31st March 2024
-        if row['DateDue'] < pd.Timestamp('2024-03-31'):
-            continue
-        
-        # Check for mismatches and update the values
-        if row['Partner Amount'] != row['Amount_lms_updated']:
-            df.at[index, 'Amount_lms_updated'] = row['Partner Amount']
-            df.at[index, 'Remarks'] = "Amount updated"
+# Token Generation
+st.subheader("Generate Token")
+client_id = st.text_input("Client ID")
+client_secret = st.text_input("Client Secret", type="password")
+if st.button("Generate Token"):
+    data = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "client_credentials",
+        "scope": "read write"
+    }
+    response = requests.post(TOKEN_URL, data=data)
+    if response.status_code == 200:
+        token = response.json().get("access_token")
+        st.session_state["token"] = token
+        st.success("Token generated successfully!")
+    else:
+        st.error("Failed to generate token")
 
-        if row['Partner Principal'] != row['Principal_lms_updated']:
-            df.at[index, 'Principal_lms_updated'] = row['Partner Principal']
-            df.at[index, 'Remarks'] += " | Principal updated" if df.at[index, 'Remarks'] else "Principal updated"
+# Loan Creation
+st.subheader("Create Loan")
+partnerCustomerId = st.text_input("Partner Customer ID", generate_random_number(10))
+partnerLoanId = st.text_input("Partner Loan ID", generate_random_number(18))
+groupId = st.text_input("Group ID", "G082350")
+branchCode = st.text_input("Branch Code")
+partnerId = st.text_input("Partner ID")
 
-        if row['Partner Interest'] != row['Interest_lms_updated']:
-            df.at[index, 'Interest_lms_updated'] = row['Partner Interest']
-            df.at[index, 'Remarks'] += " | Interest updated" if df.at[index, 'Remarks'] else "Interest updated"
-    
-    return df
+if st.button("Create Loan"):
+    if "token" not in st.session_state:
+        st.error("Please generate a token first")
+    else:
+        headers = {"Authorization": f"Bearer {st.session_state['token']}", "Content-Type": "application/json"}
+        payload = {
+            "partner_id": partnerId,
+            "partnerCustomerId": partnerCustomerId,
+            "partnerLoanId": partnerLoanId,
+            "groupId": groupId
+        }
+        response = requests.post(LOAN_CREATION_URL, json=payload, headers=headers)
+        st.json(response.json())
 
-def main():
-    st.title('LMS Data Update Tool')
-    st.write("Upload your Excel file to process LMS data")
-
-    # File upload
-    uploaded_file = st.file_uploader("Choose an Excel file", type="xlsx")
-
-    if uploaded_file is not None:
-        st.success("File uploaded successfully")
-        # Process the file
-        result_df = update_lms_data(uploaded_file)
-        
-        # Show the updated dataframe
-        st.write("Updated Data Preview:")
-        st.dataframe(result_df)
-
-        # Download the updated file
-        st.download_button(
-            label="Download Updated Excel",
-            data=result_df.to_excel(index=False, engine='openpyxl'),
-            file_name="updated_lms_data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-if __name__ == '__main__':
-    main()
+# Document Upload
+st.subheader("Upload Loan Document")
+loanApplicationId = st.text_input("Loan Application ID")
+document_file = st.file_uploader("Upload Document")
+if st.button("Upload Document"):
+    if "token" not in st.session_state:
+        st.error("Please generate a token first")
+    else:
+        url = DOCUMENT_UPLOAD_URL.format(loanApplicationId=loanApplicationId)
+        headers = {"Authorization": f"Bearer {st.session_state['token']}"}
+        files = {"documents": document_file.getvalue() if document_file else None}
+        response = requests.post(url, headers=headers, files=files)
+        st.json(response.json())
