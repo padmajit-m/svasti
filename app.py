@@ -4,6 +4,7 @@ import random
 
 # API Endpoints
 TOKEN_URL = "https://dashboardui.sandbox.kalfin.in/kaleidofin-auth/oauth/token"
+KISCORE_API_URL = "https://dashboardui.sandbox.kalfin.in/kaleidofin-server/api/v2/services/creditAnalytics"
 LOAN_CREATION_URL = "https://dashboardui.sandbox.kalfin.in/kaleidofin-server/api/v2/services/creditAnalytics"
 DOCUMENT_UPLOAD_URL = "https://dashboardui.sandbox.kalfin.in/krediline-server/api/v1/partner/loanApplications/{loanApplicationId}/kycDocuments"
 
@@ -30,6 +31,41 @@ if st.button("Generate Token"):
         st.success("Token generated successfully!")
     else:
         st.error("Failed to generate token")
+
+# Kiscore API Call
+st.subheader("Kiscore API")
+partner_id = st.text_input("Partner ID")
+customer_id = st.text_input("Customer ID", generate_random_number(10))
+loan_application_number = st.text_input("Loan Application Number", generate_random_number(18))
+loan_applied_amt = st.number_input("Loan Applied Amount", value=100000)
+loan_purpose = st.text_input("Loan Purpose", "Asset Purchase")
+proposed_disbursement_date = st.text_input("Proposed Disbursement Date", "2025/01/03")
+
+if st.button("Call Kiscore API"):
+    if "token" not in st.session_state:
+        st.error("Please generate a token first")
+    else:
+        headers = {"Authorization": f"Bearer {st.session_state['token']}", "Content-Type": "application/json"}
+        payload = {
+            "partner_id": partner_id,
+            "partner_type": "kcpl",
+            "customer_id": customer_id,
+            "current_loan_details": {
+                "loan_application_number": loan_application_number,
+                "loan_purpose": loan_purpose,
+                "proposed_disbursement_date": proposed_disbursement_date,
+                "loan_applied_amt": loan_applied_amt,
+                "loan_cycle": 1,
+                "product_type": "WEL",
+                "repayment_frequency": "Monthly",
+                "no_of_installments": 24,
+                "interest_rate": "NaN",
+                "instalment_amount": None,
+                "loan_category": "WEL"
+            }
+        }
+        response = requests.post(KISCORE_API_URL, json=payload, headers=headers)
+        st.json(response.json())
 
 # Loan Creation
 st.subheader("Create Loan")
@@ -63,6 +99,6 @@ if st.button("Upload Document"):
     else:
         url = DOCUMENT_UPLOAD_URL.format(loanApplicationId=loanApplicationId)
         headers = {"Authorization": f"Bearer {st.session_state['token']}"}
-        files = {"documents": document_file.getvalue() if document_file else None}
+        files = {"documents": (document_file.name, document_file.getvalue())} if document_file else None
         response = requests.post(url, headers=headers, files=files)
         st.json(response.json())
